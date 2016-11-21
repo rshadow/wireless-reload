@@ -67,15 +67,17 @@ function say {
         say "fail"
     fi
 
-    if [ $DRIVER ]; then
-        say -n "Reloading '$IFACE' on '$DRIVER' driver ... "
+    say -n "Reloading '$IFACE' ... "
 
-        # Reload interface
-        ifdown $IFACE           1>/dev/null
-        rmmod $DRIVER           1>/dev/null
-        modprobe $DRIVER        1>/dev/null
-        ifup $IFACE             1>/dev/null
+    # Reload interface
+    ifdown $IFACE           &>/dev/null
+    if [ $DRIVER ]; then
+        # Roleading driver
+        say -n " and driver '$DRIVER' ... "
+        rmmod $DRIVER       1>/dev/null
+        modprobe $DRIVER    1>/dev/null
     fi
+    ifup $IFACE             &>/dev/null
 
     say "done"
 
