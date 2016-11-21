@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# Time to make ping probes
+PING_TIME=3
+# IP for extermal probes
+IP_EXT=8.8.8.8
+# Driver to reload
+# Some buggy drivers good to reload too
+# TODO: get driver for $IFACE
+DRIVER=wl
+
+# by default disable output for cron
+VERBOSE=
+FORCE=
+while [ "$1" != "" ]; do
+    case $1 in
+        -v | --verbose) VERBOSE=1;;
+        -f | --force)   FORCE=1;;
+        -h | --help)    usage; exit 0;;
+        * )             usage; exit 1;;
+    esac
+    shift
+done
+
+# show usage
+function usage {
+    echo "usage:  wireless-reload [-h|--help] [-q|--quiet] [-f|--force]"
+}
+
+# echo if not quiet
+function say {
+    [ $VERBOSE ] || return
+    echo $@
+}
+
+(
+    # Start once
+    /usr/bin/flock -E 0 -n 200 || exit 0
+
+    # Get defautl interface
+    ROUTE=$(/sbin/ip route | grep default)
+    IFACE=$(echo "$ROUTE" | cut -d ' ' -f 5)
+    [ "$IFACE" ] || IFACE=$(ifconfig| grep "wlan" | head -n 1 | cut -d ' ' -f 1)
+
+    if [ ! $FORCE ]; then
+        IP=$(echo "$ROUTE" | cut -d ' ' -f 3)
+        [ "$IP" ] || IP=$IP_EXT
+
+        say -n "Ping $IP ... "
+
+        # Ping gateway and exit if ok
+        PING=$(timeout -k $(($PING_TIME + 2))s $(($PING_TIME + 1))s ping -nq -c $PING_TIME -I $IFACE $IP)
+        LOSS=$(echo "$PING" | grep " 100% packet loss")
+        if [ -z "$LOSS" ]; then
+            say "ok"
+
+            say -n "Ping $IP_EXT ... "
+
+            PING=$(timeout -k $(($PING_TIME + 2))s $(($PING_TIME + 1))s ping -nq -w $PING_TIME -I $IFACE $IP_EXT)
+            LOSS=$(echo "$PING" | grep " 100% packet loss")
+            if [ -z "$LOSS" ]; then
+                say "ok"
+                exit 0
+            fi
+        fi
+
+        say "fail"
+    fi
+
+    if [ $DRIVER ]; then
+        say -n "Reloading '$IFACE' on '$DRIVER' driver ... "
+
+        # Reload interface
+        ifdown $IFACE           1>/dev/null
+        rmmod $DRIVER           1>/dev/null
+        modprobe $DRIVER        1>/dev/null
+        ifup $IFACE             1>/dev/null
+    fi
+
+    say "done"
+
+) 200>/var/lock/.wireless-reload
+
+exit 0
